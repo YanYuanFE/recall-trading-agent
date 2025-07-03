@@ -1,0 +1,20 @@
+{
+  "target_allocations": {
+    "USDC": 0.3,
+    "WETH": 0.4,
+    "SOL": 0.3
+  },
+  "rebalance_threshold": 0.05,
+  "min_trade_amount": 10,
+  "max_slippage": 0.01,
+  "trading_pairs": {
+    "ethereum": {
+      "USDC": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "WETH": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    },
+    "solana": {
+      "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "SOL": "So11111111111111111111111111111111111111112"
+    }
+  }
+}
