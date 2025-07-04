@@ -20,7 +20,7 @@ API Key validation failed: Invalid API key. This key may have been reset or is n
 
 ```bash
 # 当前配置
-TRADING_SIM_API_KEY=602c0238f253cacb_83c246f4bc5a6ebe  # 旧密钥
+TRADING_SIM_API_KEY=  # 旧密钥
 
 # 更新为新密钥
 TRADING_SIM_API_KEY=你的新API密钥
@@ -175,5 +175,23 @@ A: 是的，项目会自动切换到演示模式，使用模拟数据展示所�
 - ✅ 清理了debug脚本
 
 **测试结果**: 程序运行无错误，portfolio数据正常显示，交易功能完全可用。
+
+### 💰 价格API更新完成 (2025-07-03 23:40)
+
+**✅ 修复价格端点格式**:
+- 更新为正确格式: `/price?token=${tokenAddress}&chain=${chain}&specificChain=${specificChain}`
+- 支持链映射: `solana` → `svm/svm`, `ethereum` → `evm/eth`
+- 价格数据准确获取: SOL $153.94, USDC $0.9996, WETH $2,615.8
+
+**✅ Portfolio rebalancing完全正常**:
+- 成功执行多次交易达到目标分配
+- 最终状态: USDC 38.7% ($2,491), SOL 61.3% ($3,939)
+- 接近目标分配: USDC 40%, SOL 60%
+
+**当前功能状态**:
+- ✅ 价格API正常工作
+- ✅ 交易执行完全可用
+- ✅ Portfolio自动rebalancing正常
+- ✅ 程序自动运行和监控
 
 *更新日期：2025-07-03*

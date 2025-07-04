@@ -74,28 +74,85 @@ class TradingAgent:
         self.running = True
         logger.info("Trading Agent started successfully")
         
-        # Main loop
+        # Main loop with user-friendly status updates
         try:
+            print("\n" + "="*60)
+            print("🤖 RECALL TRADING AGENT - RUNNING")
+            print("="*60)
+            print("📊 Portfolio Target: 40% USDC, 60% SOL")
+            print("⏰ Next rebalance: Every hour")
+            print("📈 Trading signals: Every 30 minutes") 
+            print("💰 Price monitoring: Every 15 minutes")
+            print("📋 Portfolio report: Every 6 hours")
+            print("="*60)
+            print("💡 Press Ctrl+C to stop the agent")
+            print("📝 Logs are saved to: logs/trading_agent_*.log")
+            print("")
+            
+            last_status_time = time.time()
+            status_interval = 300  # Show status every 5 minutes
+            
             while self.running:
                 schedule.run_pending()
+                
+                # Show periodic status updates
+                current_time = time.time()
+                if current_time - last_status_time >= status_interval:
+                    self.show_live_status()
+                    last_status_time = current_time
+                
                 time.sleep(60)  # Check every minute
                 
         except KeyboardInterrupt:
+            print("\n🛑 Received keyboard interrupt, shutting down...")
             logger.info("Received keyboard interrupt")
         except Exception as e:
+            print(f"\n❌ Unexpected error: {e}")
             logger.error(f"Unexpected error in main loop: {e}")
         finally:
+            print("\n🔄 Shutting down trading agent...")
             self.stop()
         
         return True
     
+    def show_live_status(self):
+        """Show live status update to the user"""
+        try:
+            current_time = datetime.now().strftime("%H:%M:%S")
+            print(f"\n⏰ {current_time} - Status Update")
+            print("-" * 40)
+            
+            # Get portfolio status
+            portfolio_status = self.portfolio_manager.get_portfolio_status()
+            total_value = sum(target.current_value for target in portfolio_status.values())
+            
+            print(f"💰 Portfolio Value: ${total_value:,.0f}")
+            
+            for symbol, target in portfolio_status.items():
+                drift_indicator = "⚖️" if abs(target.drift) < 0.05 else "⚠️" if abs(target.drift) < 0.15 else "🔴"
+                print(f"   {drift_indicator} {symbol}: {target.current_allocation*100:.1f}% (target: {target.target_allocation*100:.1f}%)")
+            
+            # Check if rebalancing is needed
+            trades = self.portfolio_manager.calculate_rebalance_trades()
+            if trades:
+                print(f"🔄 Rebalancing needed: {len(trades)} trades")
+            else:
+                print("✅ Portfolio is balanced")
+            
+            print("-" * 40)
+            
+        except Exception as e:
+            print(f"⚠️  Status update failed: {e}")
+
     def stop(self):
         """Stop the trading agent"""
+        print("\n📊 Final Portfolio Report:")
         logger.info("Stopping Trading Agent...")
         self.running = False
         
         # Final portfolio report
         self.log_portfolio_status()
+        print("✅ Trading Agent stopped successfully")
         logger.info("Trading Agent stopped")
     
     def _signal_handler(self, signum, frame):
@@ -106,25 +163,31 @@ class TradingAgent:
     def rebalance_portfolio(self):
         """Execute portfolio rebalancing"""
         try:
+            print(f"\n🔄 {datetime.now().strftime('%H:%M:%S')} - Starting portfolio rebalancing...")
             logger.info("Starting portfolio rebalancing...")
             success = self.portfolio_manager.execute_rebalance()
             
             if success:
+                print("✅ Portfolio rebalancing completed successfully")
                 logger.info("Portfolio rebalancing completed successfully")
             else:
+                print("ℹ️  No rebalancing needed")
                 logger.warning("Portfolio rebalancing failed or was not needed")
                 
         except Exception as e:
+            print(f"❌ Portfolio rebalancing error: {e}")
             logger.error(f"Error during portfolio rebalancing: {e}")
     
     def execute_trading_signals(self):
         """Execute trades based on strategy signals"""
         try:
+            print(f"\n📈 {datetime.now().strftime('%H:%M:%S')} - Analyzing market for trading signals...")
             logger.info("Generating and executing trading signals...")
             
             signals = self.strategy_manager.generate_combined_signals()
             
             if not signals:
+                print("📊 No strong trading signals detected")
                 logger.info("No trading signals generated")
                 return
             
@@ -172,13 +235,22 @@ class TradingAgent:
     def monitor_prices(self):
         """Monitor price changes and generate alerts"""
         try:
+            print(f"\n💰 {datetime.now().strftime('%H:%M:%S')} - Monitoring market prices...")
             alerts = self.price_monitor.monitor_prices(self.symbols)
             
-            for alert in alerts:
-                logger.info(f"Price Alert: {alert['symbol']} changed {alert['change']:.2%} "
-                           f"from ${alert['last_price']:.4f} to ${alert['current_price']:.4f}")
+            if alerts:
+                print(f"🚨 {len(alerts)} price alerts detected:")
+                for alert in alerts:
+                    change_emoji = "📈" if alert['change'] > 0 else "📉"
+                    print(f"   {change_emoji} {alert['symbol']}: {alert['change']:+.2%} "
+                           f"(${alert['last_price']:.2f} → ${alert['current_price']:.2f})")
+                    logger.info(f"Price Alert: {alert['symbol']} changed {alert['change']:.2%} "
+                               f"from ${alert['last_price']:.4f} to ${alert['current_price']:.4f}")
+            else:
+                print("📊 No significant price changes detected")
             
         except Exception as e:
+            print(f"❌ Price monitoring error: {e}")
             logger.error(f"Error monitoring prices: {e}")
     
     def log_portfolio_status(self):
@@ -193,6 +265,7 @@ class TradingAgent:
     def generate_daily_report(self):
         """Generate comprehensive daily report"""
         try:
+            print(f"\n📋 {datetime.now().strftime('%H:%M:%S')} - Generating daily report...")
             logger.info("Generating daily report...")
             
             # Portfolio performance

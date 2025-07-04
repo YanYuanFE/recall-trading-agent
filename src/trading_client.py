@@ -108,31 +108,33 @@ class RecallTradingClient:
     
     def get_token_price(self, token_address: str, chain: str) -> float:
         try:
+            # Map chain names to the correct format for the API
+            if chain == "solana":
+                chain_param = "svm"
+                specific_chain = "svm"
+            elif chain == "ethereum":
+                chain_param = "evm"
+                specific_chain = "eth"
+            else:
+                # Default mapping
+                chain_param = chain
+                specific_chain = chain
+            
             params = {
                 "token": token_address,
-                "chain": chain
+                "chain": chain_param,
+                "specificChain": specific_chain
             }
-            # Try multiple possible price endpoints
-            price_endpoints = ["/trade/price", "/price", "/market/price"]
             
-            for endpoint in price_endpoints:
-                try:
-                    response = self.session.get(f"{self.base_url}{endpoint}", params=params)
-                    if response.status_code == 200:
-                        data = response.json()
-                        return float(data.get("price", 0))
-                    elif response.status_code == 404:
-                        continue
-                    else:
-                        response.raise_for_status()
-                except requests.RequestException:
-                    continue
+            response = self.session.get(f"{self.base_url}/price", params=params)
+            response.raise_for_status()
+            data = response.json()
+            return float(data.get("price", 0))
             
-            logger.warning(f"No working price endpoint found for {token_address}")
+        except requests.RequestException as e:
+            logger.error(f"Failed to get token price for {token_address} on {chain}: {e}")
+            # Return 0 to allow portfolio calculations to continue
             return 0.0
-        except Exception as e:
-            logger.error(f"Failed to get token price: {e}")
-            raise
     
     def get_trade_quote(self, from_token: str, to_token: str, amount: float, chain: str) -> Dict[str, Any]:
         try:

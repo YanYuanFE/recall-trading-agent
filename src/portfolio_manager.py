@@ -80,19 +80,35 @@ class PortfolioManager:
         return portfolio_status
     
     def _process_portfolio_data(self, portfolio: Dict) -> Dict[str, PortfolioTarget]:
-        """Process portfolio endpoint data"""
-        total_value = portfolio.get('totalValue', 0)
+        """Process portfolio endpoint data - only include configured chains"""
         tokens = portfolio.get('tokens', [])
         
-        # Group tokens by symbol and sum their values
+        # Only include tokens that are in our trading configuration
+        configured_tokens = set()
+        configured_chains = set()
+        for chain, token_map in self.config.get("trading_pairs", {}).items():
+            configured_chains.add(chain)
+            configured_tokens.update(token_map.keys())
+        
+        # Group tokens by symbol and sum their values (only for configured tokens/chains)
         token_values = {}
+        total_value = 0
+        
         for token in tokens:
             symbol = token.get('symbol', 'UNKNOWN')
+            chain = token.get('chain', '')
             value = token.get('value', 0)
-            if symbol in token_values:
-                token_values[symbol] += value
-            else:
-                token_values[symbol] = value
+            
+            # Map chain names: 'evm' -> 'ethereum', 'svm' -> 'solana'
+            mapped_chain = 'ethereum' if chain == 'evm' else 'solana' if chain == 'svm' else chain
+            
+            # Only include if symbol is configured and on a configured chain
+            if symbol in configured_tokens and mapped_chain in configured_chains:
+                if symbol in token_values:
+                    token_values[symbol] += value
+                else:
+                    token_values[symbol] = value
+                total_value += value
         
         portfolio_status = {}
         for symbol, target_allocation in self.target_allocations.items():
