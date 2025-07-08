@@ -31,8 +31,12 @@ class TradingAgent:
         self.price_monitor = PriceMonitor()
         self.running = False
         
-        # Trading symbols to monitor
-        self.symbols = ['WETH', 'SOL', 'USDC']
+        # Get trading symbols from configuration
+        from src.token_config import TokenConfigManager
+        token_config = TokenConfigManager()
+        self.symbols = token_config.get_token_symbols()
+        
+        logger.info(f"Monitoring {len(self.symbols)} tokens: {', '.join(self.symbols)}")
         
         logger.info("Trading Agent initialized")
     
@@ -79,7 +83,8 @@ class TradingAgent:
             print("\n" + "="*60)
             print("🤖 RECALL TRADING AGENT - RUNNING")
             print("="*60)
-            print("📊 Portfolio Target: 40% USDC, 60% SOL")
+            print("📊 Portfolio Target: 30% USDC, 40% SOL, 30% WETH")
+            print("⚡ Multi-chain support: Solana (SVM) + Ethereum (EVM)")
             print("⏰ Next rebalance: Every hour")
             print("📈 Trading signals: Every 30 minutes") 
             print("💰 Price monitoring: Every 15 minutes")

@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 import logging
 from src.trading_client import RecallTradingClient
 from src.config import Config
+from src.token_config import TokenConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -30,94 +31,118 @@ class TradingStrategy(ABC):
         pass
 
 class MomentumStrategy(TradingStrategy):
-    def __init__(self, lookback_period: int = 24, momentum_threshold: float = 0.05):
+    def __init__(self, token_config_manager: Optional[TokenConfigManager] = None):
         super().__init__()
-        self.lookback_period = lookback_period
-        self.momentum_threshold = momentum_threshold
+        self.token_config = token_config_manager or TokenConfigManager()
+        self.strategy_config = self.token_config.get_strategy_config()
+        self.momentum_config = self.strategy_config.get('momentum_strategy', {})
+        self.lookback_period = self.momentum_config.get('lookback_hours', 12)
         self.price_history = {}
         
     def generate_signals(self) -> List[Signal]:
         signals = []
         
         try:
-            # Get current balances to determine what tokens we have
-            balances = self.trading_client.get_balances()
+            # Get non-stablecoin tokens from configuration
+            tradeable_tokens = self.token_config.get_non_stablecoin_tokens()
             
-            for balance in balances:
-                if balance.token.symbol in ['USDC']:  # Skip stablecoin
-                    continue
-                    
-                signal = self._analyze_momentum(balance.token.symbol, balance.token.address, balance.token.chain)
-                if signal:
+            logger.info(f"Analyzing momentum for {len(tradeable_tokens)} tokens")
+            
+            for token in tradeable_tokens:
+                signal = self._analyze_momentum(token)
+                if signal and signal.action != 'hold':  # Only include actionable signals
                     signals.append(signal)
+                    logger.info(f"Generated {signal.action} signal for {token.symbol}: {signal.reason}")
                     
         except Exception as e:
             logger.error(f"Error generating momentum signals: {e}")
             
         return signals
     
-    def _analyze_momentum(self, symbol: str, token_address: str, chain: str) -> Optional[Signal]:
+    def _analyze_momentum(self, token) -> Optional[Signal]:
         try:
             # Get current price
-            current_price = self.trading_client.get_token_price(token_address, chain)
+            current_price = self.trading_client.get_token_price(token.address, token.chain)
             
-            # Store price history (in real implementation, you'd want persistent storage)
-            if symbol not in self.price_history:
-                self.price_history[symbol] = []
+            if current_price is None or current_price <= 0:
+                logger.debug(f"Cannot get valid price for {token.symbol}: {current_price}")
+                return None
             
-            self.price_history[symbol].append({
+            # Get token-specific momentum threshold
+            momentum_threshold = token.get_momentum_threshold(self.strategy_config)
+            volatility_multiplier = token.get_volatility_multiplier(self.token_config.get_risk_config())
+            
+            # Adjust threshold based on volatility
+            adjusted_threshold = momentum_threshold * volatility_multiplier
+            
+            # Store price history
+            symbol_key = f"{token.symbol}_{token.chain}"
+            if symbol_key not in self.price_history:
+                self.price_history[symbol_key] = []
+            
+            self.price_history[symbol_key].append({
                 'price': current_price,
                 'timestamp': time.time()
             })
             
             # Keep only recent prices
-            cutoff_time = time.time() - (self.lookback_period * 3600)  # lookback_period in hours
-            self.price_history[symbol] = [
-                p for p in self.price_history[symbol] 
+            cutoff_time = time.time() - (self.lookback_period * 3600)
+            self.price_history[symbol_key] = [
+                p for p in self.price_history[symbol_key] 
                 if p['timestamp'] > cutoff_time
             ]
             
-            if len(self.price_history[symbol]) < 2:
+            if len(self.price_history[symbol_key]) < 2:
+                logger.debug(f"Insufficient price history for {token.symbol}")
                 return None
             
             # Calculate momentum
-            prices = [p['price'] for p in self.price_history[symbol]]
+            prices = [p['price'] for p in self.price_history[symbol_key]]
+            recent_return = (prices[-1] - prices[0]) / prices[0]
             
-            if len(prices) >= 2:
-                recent_return = (prices[-1] - prices[0]) / prices[0]
-                
-                if recent_return > self.momentum_threshold:
-                    return Signal(
-                        action='buy',
-                        symbol=symbol,
-                        strength=min(abs(recent_return), 1.0),
-                        reason=f"Positive momentum: {recent_return:.2%}",
-                        timestamp=time.time()
-                    )
-                elif recent_return < -self.momentum_threshold:
-                    return Signal(
-                        action='sell',
-                        symbol=symbol,
-                        strength=min(abs(recent_return), 1.0),
-                        reason=f"Negative momentum: {recent_return:.2%}",
-                        timestamp=time.time()
-                    )
+            logger.debug(f"{token.symbol}: price change {recent_return:.2%}, threshold ±{adjusted_threshold:.2%}")
+            
+            if recent_return > adjusted_threshold:
+                strength = min(abs(recent_return) / adjusted_threshold, 1.0)
+                return Signal(
+                    action='buy',
+                    symbol=token.symbol,
+                    strength=strength,
+                    reason=f"Positive momentum: {recent_return:.2%} (threshold: {adjusted_threshold:.2%})",
+                    timestamp=time.time()
+                )
+            elif recent_return < -adjusted_threshold:
+                strength = min(abs(recent_return) / adjusted_threshold, 1.0)
+                return Signal(
+                    action='sell',
+                    symbol=token.symbol,
+                    strength=strength,
+                    reason=f"Negative momentum: {recent_return:.2%} (threshold: {adjusted_threshold:.2%})",
+                    timestamp=time.time()
+                )
             
             return Signal(
                 action='hold',
-                symbol=symbol,
+                symbol=token.symbol,
                 strength=0.0,
-                reason="No significant momentum",
+                reason=f"No significant momentum: {recent_return:.2%}",
                 timestamp=time.time()
             )
             
         except Exception as e:
-            logger.error(f"Error analyzing momentum for {symbol}: {e}")
+            logger.error(f"Error analyzing momentum for {token.symbol}: {e}")
             return None
     
     def calculate_position_size(self, signal: Signal, available_capital: float) -> float:
-        # Position size based on signal strength and risk management
-        base_position_size = available_capital * 0.1  # 10% of available capital
+        # Get token-specific position sizing
+        token = self.token_config.get_token_by_symbol(signal.symbol)
+        if token:
+            base_ratio = token.get_position_size_ratio(self.strategy_config)
+        else:
+            base_ratio = 0.1  # Default 10%
+        
+        # Position size based on signal strength and token category
+        base_position_size = available_capital * base_ratio
         position_size = base_position_size * signal.strength
         
         # Apply maximum position size limit
@@ -125,54 +150,66 @@ class MomentumStrategy(TradingStrategy):
         return min(position_size, max_position)
 
 class MeanReversionStrategy(TradingStrategy):
-    def __init__(self, lookback_period: int = 48, z_score_threshold: float = 2.0):
+    def __init__(self, token_config_manager: Optional[TokenConfigManager] = None):
         super().__init__()
-        self.lookback_period = lookback_period
-        self.z_score_threshold = z_score_threshold
+        self.token_config = token_config_manager or TokenConfigManager()
+        self.strategy_config = self.token_config.get_strategy_config()
+        self.reversion_config = self.strategy_config.get('mean_reversion_strategy', {})
+        self.lookback_period = self.reversion_config.get('lookback_hours', 24)
         self.price_history = {}
         
     def generate_signals(self) -> List[Signal]:
         signals = []
         
         try:
-            balances = self.trading_client.get_balances()
+            # Get non-stablecoin tokens from configuration
+            tradeable_tokens = self.token_config.get_non_stablecoin_tokens()
             
-            for balance in balances:
-                if balance.token.symbol in ['USDC']:
-                    continue
-                    
-                signal = self._analyze_mean_reversion(balance.token.symbol, balance.token.address, balance.token.chain)
-                if signal:
+            logger.info(f"Analyzing mean reversion for {len(tradeable_tokens)} tokens")
+            
+            for token in tradeable_tokens:
+                signal = self._analyze_mean_reversion(token)
+                if signal and signal.action != 'hold':  # Only include actionable signals
                     signals.append(signal)
+                    logger.info(f"Generated {signal.action} signal for {token.symbol}: {signal.reason}")
                     
         except Exception as e:
             logger.error(f"Error generating mean reversion signals: {e}")
             
         return signals
     
-    def _analyze_mean_reversion(self, symbol: str, token_address: str, chain: str) -> Optional[Signal]:
+    def _analyze_mean_reversion(self, token) -> Optional[Signal]:
         try:
-            current_price = self.trading_client.get_token_price(token_address, chain)
+            current_price = self.trading_client.get_token_price(token.address, token.chain)
             
-            if symbol not in self.price_history:
-                self.price_history[symbol] = []
+            if current_price is None or current_price <= 0:
+                logger.debug(f"Cannot get valid price for {token.symbol}: {current_price}")
+                return None
             
-            self.price_history[symbol].append({
+            # Get token-specific z-score threshold
+            z_score_threshold = token.get_z_score_threshold(self.strategy_config)
+            
+            symbol_key = f"{token.symbol}_{token.chain}"
+            if symbol_key not in self.price_history:
+                self.price_history[symbol_key] = []
+            
+            self.price_history[symbol_key].append({
                 'price': current_price,
                 'timestamp': time.time()
             })
             
             # Keep only recent prices
             cutoff_time = time.time() - (self.lookback_period * 3600)
-            self.price_history[symbol] = [
-                p for p in self.price_history[symbol] 
+            self.price_history[symbol_key] = [
+                p for p in self.price_history[symbol_key] 
                 if p['timestamp'] > cutoff_time
             ]
             
-            if len(self.price_history[symbol]) < 10:  # Need enough data for statistics
+            if len(self.price_history[symbol_key]) < 10:  # Need enough data for statistics
+                logger.debug(f"Insufficient price history for {token.symbol} mean reversion")
                 return None
             
-            prices = np.array([p['price'] for p in self.price_history[symbol]])
+            prices = np.array([p['price'] for p in self.price_history[symbol_key]])
             mean_price = np.mean(prices)
             std_price = np.std(prices)
             
@@ -181,37 +218,48 @@ class MeanReversionStrategy(TradingStrategy):
             
             z_score = (current_price - mean_price) / std_price
             
-            if z_score > self.z_score_threshold:
+            logger.debug(f"{token.symbol}: Z-score {z_score:.2f}, threshold ±{z_score_threshold:.2f}")
+            
+            if z_score > z_score_threshold:
+                strength = min(abs(z_score) / z_score_threshold, 1.0)
                 return Signal(
                     action='sell',
-                    symbol=symbol,
-                    strength=min(abs(z_score) / self.z_score_threshold, 1.0),
-                    reason=f"Price too high (Z-score: {z_score:.2f})",
+                    symbol=token.symbol,
+                    strength=strength,
+                    reason=f"Price too high (Z-score: {z_score:.2f}, threshold: {z_score_threshold:.2f})",
                     timestamp=time.time()
                 )
-            elif z_score < -self.z_score_threshold:
+            elif z_score < -z_score_threshold:
+                strength = min(abs(z_score) / z_score_threshold, 1.0)
                 return Signal(
                     action='buy',
-                    symbol=symbol,
-                    strength=min(abs(z_score) / self.z_score_threshold, 1.0),
-                    reason=f"Price too low (Z-score: {z_score:.2f})",
+                    symbol=token.symbol,
+                    strength=strength,
+                    reason=f"Price too low (Z-score: {z_score:.2f}, threshold: {z_score_threshold:.2f})",
                     timestamp=time.time()
                 )
             
             return Signal(
                 action='hold',
-                symbol=symbol,
+                symbol=token.symbol,
                 strength=0.0,
                 reason=f"Price normal (Z-score: {z_score:.2f})",
                 timestamp=time.time()
             )
             
         except Exception as e:
-            logger.error(f"Error analyzing mean reversion for {symbol}: {e}")
+            logger.error(f"Error analyzing mean reversion for {token.symbol}: {e}")
             return None
     
     def calculate_position_size(self, signal: Signal, available_capital: float) -> float:
-        base_position_size = available_capital * 0.05  # 5% of available capital
+        # Get token-specific position sizing (more conservative for mean reversion)
+        token = self.token_config.get_token_by_symbol(signal.symbol)
+        if token:
+            base_ratio = token.get_position_size_ratio(self.strategy_config) * 0.5  # Half size for mean reversion
+        else:
+            base_ratio = 0.05  # Default 5%
+        
+        base_position_size = available_capital * base_ratio
         position_size = base_position_size * signal.strength
         
         max_position = available_capital * Config.MAX_POSITION_SIZE
@@ -219,11 +267,16 @@ class MeanReversionStrategy(TradingStrategy):
 
 class MultiStrategyManager:
     def __init__(self):
+        self.token_config = TokenConfigManager()
         self.strategies = [
-            MomentumStrategy(),
-            MeanReversionStrategy()
+            MomentumStrategy(self.token_config),
+            MeanReversionStrategy(self.token_config)
         ]
         self.trading_client = RecallTradingClient()
+        
+        # Log configuration summary
+        logger.info("Multi-Strategy Trading System Initialized")
+        logger.info(self.token_config.get_token_summary())
         
     def generate_combined_signals(self) -> List[Signal]:
         all_signals = []

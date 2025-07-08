@@ -1,0 +1,127 @@
+{
+  "trading_tokens": {
+    "ethereum": {
+      "WETH": {
+        "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        "decimals": 18,
+        "category": "major",
+        "enabled": true,
+        "volatility_expected": "medium"
+      },
+      "USDC": {
+        "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "decimals": 6,
+        "category": "stablecoin",
+        "enabled": true,
+        "volatility_expected": "low"
+      },
+      "PEPE": {
+        "address": "0x6982508145454Ce325dDbE47a25d4ec3d2311933",
+        "decimals": 18,
+        "category": "meme",
+        "enabled": true,
+        "volatility_expected": "very_high"
+      },
+      "SHIB": {
+        "address": "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE",
+        "decimals": 18,
+        "category": "meme",
+        "enabled": true,
+        "volatility_expected": "high"
+      },
+      "UNI": {
+        "address": "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
+        "decimals": 18,
+        "category": "defi",
+        "enabled": true,
+        "volatility_expected": "medium"
+      },
+      "LINK": {
+        "address": "0x514910771AF9Ca656af840dff83E8264EcF986CA",
+        "decimals": 18,
+        "category": "oracle",
+        "enabled": true,
+        "volatility_expected": "medium"
+      }
+    },
+    "solana": {
+      "SOL": {
+        "address": "So11111111111111111111111111111111111111112",
+        "decimals": 9,
+        "category": "major",
+        "enabled": true,
+        "volatility_expected": "medium"
+      },
+      "USDC": {
+        "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6,
+        "category": "stablecoin",
+        "enabled": true,
+        "volatility_expected": "low"
+      },
+      "BONK": {
+        "address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "decimals": 5,
+        "category": "meme",
+        "enabled": true,
+        "volatility_expected": "very_high"
+      },
+      "WIF": {
+        "address": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "decimals": 6,
+        "category": "meme",
+        "enabled": true,
+        "volatility_expected": "very_high"
+      },
+      "JUP": {
+        "address": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+        "decimals": 6,
+        "category": "defi",
+        "enabled": true,
+        "volatility_expected": "high"
+      }
+    }
+  },
+  "strategy_config": {
+    "momentum_strategy": {
+      "lookback_hours": 12,
+      "thresholds": {
+        "stablecoin": 0.02,
+        "major": 0.03,
+        "defi": 0.04,
+        "oracle": 0.04,
+        "meme": 0.08,
+        "default": 0.05
+      }
+    },
+    "mean_reversion_strategy": {
+      "lookback_hours": 24,
+      "z_score_thresholds": {
+        "stablecoin": 1.5,
+        "major": 2.0,
+        "defi": 2.5,
+        "oracle": 2.5,
+        "meme": 3.0,
+        "default": 2.0
+      }
+    },
+    "position_sizing": {
+      "stablecoin": 0.05,
+      "major": 0.10,
+      "defi": 0.08,
+      "oracle": 0.08,
+      "meme": 0.15,
+      "default": 0.10
+    }
+  },
+  "risk_management": {
+    "max_meme_allocation": 0.20,
+    "max_single_token_allocation": 0.30,
+    "volatility_multipliers": {
+      "low": 0.5,
+      "medium": 1.0,
+      "high": 1.5,
+      "very_high": 2.0
+    }
+  }
+}

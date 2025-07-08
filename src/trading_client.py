@@ -126,15 +126,24 @@ class RecallTradingClient:
                 "specificChain": specific_chain
             }
             
+            logger.debug(f"Fetching price for {token_address[:10]}... on {chain}")
             response = self.session.get(f"{self.base_url}/price", params=params)
             response.raise_for_status()
             data = response.json()
-            return float(data.get("price", 0))
+            
+            price = float(data.get("price", 0))
+            if price <= 0:
+                logger.warning(f"Received invalid price {price} for {token_address} on {chain}")
+                # Return None instead of 0 to indicate failure
+                return None
+            
+            logger.debug(f"Price fetched: ${price:.6f} for {token_address[:10]}...")
+            return price
             
         except requests.RequestException as e:
             logger.error(f"Failed to get token price for {token_address} on {chain}: {e}")
-            # Return 0 to allow portfolio calculations to continue
-            return 0.0
+            # Return None instead of 0 to properly handle failures
+            return None
     
     def get_trade_quote(self, from_token: str, to_token: str, amount: float, chain: str) -> Dict[str, Any]:
         try:
@@ -160,15 +169,71 @@ class RecallTradingClient:
                 "reason": reason
             }
             
+            # Log the request details for debugging
+            logger.info(f"Executing trade request:")
+            logger.info(f"  URL: {self.base_url}/trade/execute")
+            logger.info(f"  Payload: {payload}")
+            logger.info(f"  Headers: {dict(self.session.headers)}")
+            
             response = self.session.post(f"{self.base_url}/trade/execute", json=payload)
+            
+            # Log response details for debugging
+            logger.info(f"Trade response status: {response.status_code}")
+            try:
+                response_data = response.json()
+                logger.info(f"Trade response data: {response_data}")
+            except:
+                logger.info(f"Trade response text: {response.text}")
+            
             response.raise_for_status()
             result = response.json()
             
-            logger.info(f"Trade executed: {amount} {from_token} -> {to_token}")
+            logger.info(f"Trade executed successfully: {amount} {from_token} -> {to_token}")
             return result
         except requests.RequestException as e:
+            # Enhanced error logging with request details
             logger.error(f"Failed to execute trade: {e}")
+            logger.error(f"Request details:")
+            logger.error(f"  FROM: {from_token}")
+            logger.error(f"  TO: {to_token}")
+            logger.error(f"  AMOUNT: {amount}")
+            logger.error(f"  PAYLOAD: {payload}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    logger.error(f"API error response: {error_data}")
+                except:
+                    logger.error(f"API error text: {e.response.text}")
             raise
+    
+    def get_token_info(self, token_address: str) -> Dict[str, Any]:
+        """Get token information including chain and symbol"""
+        # Check if token is in our known tokens
+        for chain, tokens in self.tokens.items():
+            for symbol, token in tokens.items():
+                if token.address.lower() == token_address.lower():
+                    return {
+                        "symbol": symbol,
+                        "chain": chain,
+                        "address": token_address,
+                        "decimals": token.decimals
+                    }
+        
+        # If not found, try to determine from address format
+        if token_address.startswith("0x"):
+            return {
+                "symbol": "UNKNOWN",
+                "chain": "ethereum",
+                "address": token_address,
+                "decimals": 18
+            }
+        else:
+            return {
+                "symbol": "UNKNOWN", 
+                "chain": "solana",
+                "address": token_address,
+                "decimals": 9
+            }
     
     def get_trade_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         try:

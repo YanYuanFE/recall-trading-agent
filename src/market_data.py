@@ -104,18 +104,27 @@ class MarketDataProvider:
             return []
     
     def get_current_price_by_symbol(self, symbol: str) -> Optional[float]:
-        # Map symbol to token address and chain
-        token_map = {
-            'WETH': {'address': '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', 'chain': 'ethereum'},
-            'USDC': {'address': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', 'chain': 'ethereum'},
-            'SOL': {'address': 'So11111111111111111111111111111111111111112', 'chain': 'solana'}
-        }
-        
-        if symbol in token_map:
-            token_info = token_map[symbol]
-            return self.get_token_price(token_info['address'], token_info['chain'])
-        
-        return None
+        try:
+            # Use token configuration to get token info
+            from src.token_config import TokenConfigManager
+            token_config = TokenConfigManager()
+            token = token_config.get_token_by_symbol(symbol)
+            
+            if not token:
+                logger.warning(f"Token {symbol} not found in configuration")
+                return None
+            
+            price = self.get_token_price(token.address, token.chain)
+            if price is None or price <= 0:
+                logger.warning(f"Invalid price received for {symbol}: {price}")
+                return None
+                
+            logger.debug(f"Price for {symbol}: ${price:.6f}")
+            return price
+            
+        except Exception as e:
+            logger.error(f"Error getting price for {symbol}: {e}")
+            return None
     
     def calculate_price_change(self, symbol: str, hours: int = 24) -> Optional[float]:
         try:
@@ -137,7 +146,10 @@ class MarketDataProvider:
         return None
     
     def get_market_summary(self) -> Dict[str, MarketStats]:
-        symbols = ['WETH', 'USDC', 'SOL']
+        # Get symbols from token configuration
+        from src.token_config import TokenConfigManager
+        token_config = TokenConfigManager()
+        symbols = token_config.get_token_symbols()
         market_summary = {}
         
         for symbol in symbols:
@@ -242,11 +254,19 @@ class PriceMonitor:
             try:
                 current_price = self.market_data.get_current_price_by_symbol(symbol)
                 
-                if current_price is None:
+                if current_price is None or current_price <= 0:
+                    logger.debug(f"Invalid price for {symbol}: {current_price}")
                     continue
                 
                 if symbol in self.last_prices:
                     last_price = self.last_prices[symbol]
+                    
+                    # Avoid division by zero
+                    if last_price is None or last_price <= 0:
+                        logger.debug(f"Invalid last price for {symbol}: {last_price}")
+                        self.last_prices[symbol] = current_price
+                        continue
+                    
                     change = (current_price - last_price) / last_price
                     
                     if abs(change) >= self.price_change_threshold:

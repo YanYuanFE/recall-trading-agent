@@ -160,17 +160,23 @@ class PortfolioManager:
                 elif value_diff < -self.min_trade_amount:
                     over_allocated.append((symbol, abs(value_diff)))
         
-        # Create trades to rebalance
+        # Create trades to rebalance - prioritize same-chain trades
         for over_symbol, over_amount in over_allocated:
             for under_symbol, under_amount in under_allocated:
                 if over_amount > 0 and under_amount > 0:
-                    trade_amount = min(over_amount, under_amount)
-                    if trade_amount >= self.min_trade_amount:
-                        trades.append((over_symbol, under_symbol, trade_amount))
-                        
-                        # Update remaining amounts
-                        over_amount -= trade_amount
-                        under_amount -= trade_amount
+                    # Check if both tokens are on the same chain
+                    from_chain = self._get_token_chain(over_symbol)
+                    to_chain = self._get_token_chain(under_symbol)
+                    
+                    # Only create trade if on same chain
+                    if from_chain == to_chain:
+                        trade_amount = min(over_amount, under_amount)
+                        if trade_amount >= self.min_trade_amount:
+                            trades.append((over_symbol, under_symbol, trade_amount))
+                            
+                            # Update remaining amounts
+                            over_amount -= trade_amount
+                            under_amount -= trade_amount
         
         return trades
     
@@ -186,31 +192,48 @@ class PortfolioManager:
             
             for from_symbol, to_symbol, usd_amount in trades:
                 try:
-                    # Get token addresses
+                    # Get token addresses and chains
                     from_token = self._get_token_address(from_symbol)
                     to_token = self._get_token_address(to_symbol)
+                    from_chain = self._get_token_chain(from_symbol)
+                    to_chain = self._get_token_chain(to_symbol)
                     
                     if not from_token or not to_token:
                         logger.error(f"Token address not found for {from_symbol} or {to_symbol}")
                         continue
                     
+                    # Check if cross-chain trade (not supported yet)
+                    if from_chain != to_chain:
+                        logger.warning(f"Cross-chain trade not supported: {from_symbol} ({from_chain}) -> {to_symbol} ({to_chain})")
+                        continue
+                    
                     # Get current price to calculate amount
-                    from_price = self.trading_client.get_token_price(from_token, self._get_token_chain(from_symbol))
-                    amount = usd_amount / from_price if from_price > 0 else 0
+                    from_price = self.trading_client.get_token_price(from_token, from_chain)
+                    if from_price is None or from_price <= 0:
+                        logger.warning(f"Cannot get valid price for {from_symbol}, skipping trade")
+                        continue
+                    
+                    amount = usd_amount / from_price
                     
                     if amount >= self.min_trade_amount / from_price:
+                        logger.info(f"Attempting trade: {amount:.6f} {from_symbol} -> {to_symbol} on {from_chain}")
+                        logger.info(f"Trade details: USD ${usd_amount:.2f}, price ${from_price:.6f}")
+                        
                         result = self.trading_client.execute_trade(
                             from_token=from_token,
                             to_token=to_token,
                             amount=amount,
-                            reason=f"Portfolio rebalance: {from_symbol} -> {to_symbol}"
+                            reason=f"Portfolio rebalance: {from_symbol} -> {to_symbol} on {from_chain}"
                         )
                         
-                        logger.info(f"Rebalance trade executed: {amount:.6f} {from_symbol} -> {to_symbol}")
+                        logger.info(f"Rebalance trade executed: {amount:.6f} {from_symbol} -> {to_symbol} on {from_chain}")
                         time.sleep(1)  # Avoid rate limiting
+                    else:
+                        logger.warning(f"Trade amount too small: {amount:.6f} {from_symbol} (min: {self.min_trade_amount / from_price:.6f})")
                     
                 except Exception as e:
                     logger.error(f"Failed to execute trade {from_symbol} -> {to_symbol}: {e}")
+                    logger.error(f"Trade parameters: from_token={from_token}, to_token={to_token}, amount={amount:.6f}")
                     continue
             
             return True
